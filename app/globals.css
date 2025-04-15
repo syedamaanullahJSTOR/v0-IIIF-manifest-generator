@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 17% 98%; /* Light grey background instead of cream */
+    --foreground: 0 0% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 10%;
+
+    --primary: 0 100% 30%; /* JSTOR Red */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 0%; /* Changed from Night Blue to black */
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 210 14% 95%; /* Light grey instead of cream */
+    --muted-foreground: 0 0% 40%;
+
+    --accent: 190 73% 56%; /* Glacier Blue */
+    --accent-foreground: 0 0% 0%; /* Changed from Night Blue to black */
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 14% 89%; /* Light grey border */
+    --input: 210 14% 89%; /* Light grey input */
+    --ring: 0 100% 30%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 0 0% 10%;
+    --foreground: 0 0% 95%;
+
+    --card: 0 0% 15%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 0 0% 15%;
+    --popover-foreground: 0 0% 95%;
+
+    --primary: 0 100% 30%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 0%; /* Changed from Night Blue to black */
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 0 0% 20%;
+    --muted-foreground: 0 0% 70%;
+
+    --accent: 190 73% 56%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 30%;
+    --input: 0 0% 30%;
+    --ring: 0 100% 30%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-serif text-black dark:text-white; /* Changed from jstor-blue-night to black */
+  }
+}
+
+/* Custom styles for JSTOR branding */
+.jstor-gradient {
+  background: linear-gradient(135deg, #990000 0%, #000000 100%); /* Changed from #14365d to #000000 */
+}
+
+.jstor-header {
+  @apply bg-black text-white py-4;
+}
+
+.jstor-footer {
+  @apply bg-black text-white py-6;
+}
+
+/* Square input styles */
+.rounded-none {
+  border-radius: 0 !important;
+}
+
+/* Adjust spacing for form elements */
+.space-y-1 > * + * {
+  margin-top: 0.25rem !important;
+}
+
+/* Adjust spacing for tabs content */
+.space-y-3 > * + * {
+  margin-top: 0.75rem !important;
+}
