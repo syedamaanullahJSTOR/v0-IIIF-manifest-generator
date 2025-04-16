@@ -645,7 +645,7 @@ export default function ManifestGenerator() {
               }`}
               onClick={() => setImportTab("external")}
             >
-              External Manifest
+              Import Manifest
             </button>
           </div>
         </div>
