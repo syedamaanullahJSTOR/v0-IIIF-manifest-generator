@@ -6,7 +6,7 @@
  * @returns A IIIF Presentation API 3.0 compliant manifest
  */
 export function generateIIIFManifest(
-  files: Array<{ id: string; file: File; filePath: string; fileId: string; type: string }>,
+  files: Array<{ id: string; file: File; filePath: string; fileId: string; type: string; externalImage?: boolean }>,
   label: string,
   description?: string,
   baseUrl: string,
@@ -14,7 +14,7 @@ export function generateIIIFManifest(
 ) {
   console.log(
     "Generating IIIF manifest with files:",
-    files.map((f) => ({ id: f.id, filePath: f.filePath, type: f.type })),
+    files.map((f) => ({ id: f.id, filePath: f.filePath, type: f.type, externalImage: f.externalImage })),
   )
 
   // Create metadata array from Dublin Core fields
@@ -50,9 +50,11 @@ export function generateIIIFManifest(
       // Create a unique canvas ID
       const canvasId = `${baseUrl}/canvas/${file.id}`
 
-      // Get direct URL to the image from Supabase
-      // Use the storage.from().getPublicUrl() pattern that's used in the UI
-      const imageUrl = `${baseUrl}/api/direct-image/${file.filePath}`
+      // Get image URL - for external images, use the filePath directly
+      // For local images, use the API route
+      const imageUrl = file.externalImage
+        ? file.filePath
+        : `${baseUrl}/api/direct-image/${file.filePath.replace(/\\/g, "/")}`
 
       // Default dimensions - we'll use 1000x1000 as a fallback
       const width = 1000
@@ -91,7 +93,9 @@ export function generateIIIFManifest(
       imageFiles.length > 0
         ? [
             {
-              id: `${baseUrl}/api/direct-image/${imageFiles[0].filePath}`,
+              id: imageFiles[0].externalImage
+                ? imageFiles[0].filePath
+                : `${baseUrl}/api/direct-image/${imageFiles[0].filePath.replace(/\\/g, "/")}`,
               type: "Image",
               format: "image/jpeg",
             },

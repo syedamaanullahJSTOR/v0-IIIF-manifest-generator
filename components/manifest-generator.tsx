@@ -17,6 +17,7 @@ import Image from "next/image"
 import BasicIIIFViewer from "@/components/basic-iiif-viewer"
 import FullscreenIIIFViewer from "@/components/fullscreen-iiif-viewer"
 import { uploadToSupabase } from "@/lib/upload-service"
+import ExternalManifestImporter from "@/components/external-manifest-importer"
 
 type UploadedFile = {
   id: string
@@ -28,6 +29,8 @@ type UploadedFile = {
   status: "pending" | "uploading" | "uploaded" | "error"
   progress?: number
   error?: string
+  externalImageUrl?: string
+  externalImage?: boolean
 }
 
 type Manifest = {
@@ -64,6 +67,16 @@ type ManifestCardProps = {
   onDownload: (e: React.MouseEvent) => void
   onThumbnailClick: () => void
   getManifestThumbnailUrl: (manifest: Manifest) => string | null
+}
+
+type ExternalImage = {
+  id: string
+  label: string
+  thumbnailUrl: string
+  imageUrl: string
+  width?: number
+  height?: number
+  format?: string
 }
 
 const ManifestCard = ({
@@ -161,6 +174,8 @@ export default function ManifestGenerator() {
   const { toast } = useToast()
   const fileInputRef = useState<HTMLInputElement | null>(null)
   const [imageErrorStates, setImageErrorStates] = useState<{ [key: string]: boolean }>({})
+  const [externalImages, setExternalImages] = useState<ExternalImage[]>([])
+  const [importTab, setImportTab] = useState<"upload" | "external">("upload")
 
   // Initialize app on mount
   useEffect(() => {
@@ -321,7 +336,7 @@ export default function ManifestGenerator() {
   const removeFile = (id: string) => {
     setFiles((prev) => {
       const fileToRemove = prev.find((f) => f.id === id)
-      if (fileToRemove && fileToRemove.type === "image") {
+      if (fileToRemove && fileToRemove.type === "image" && !fileToRemove.externalImage) {
         URL.revokeObjectURL(fileToRemove.preview)
       }
       return prev.filter((f) => f.id !== id)
@@ -333,6 +348,36 @@ export default function ManifestGenerator() {
       ...prev,
       [field]: value,
     }))
+  }
+
+  const handleExternalImagesSelected = (images: ExternalImage[]) => {
+    setExternalImages(images)
+    setImportTab("upload") // Switch back to upload tab to show the imported images
+
+    // Convert external images to UploadedFile format
+    const newFiles: UploadedFile[] = images.map((image) => {
+      const id = crypto.randomUUID()
+      // Create a dummy File object with the image label as the name
+      const dummyFile = new File([], image.label || "External Image", { type: image.format || "image/jpeg" })
+
+      return {
+        id,
+        file: dummyFile,
+        preview: image.thumbnailUrl,
+        type: "image",
+        status: "uploaded",
+        progress: 100,
+        filePath: image.imageUrl, // Store the external URL in filePath
+        externalImage: true, // Flag to identify external images
+      }
+    })
+
+    setFiles((prev) => [...prev, ...newFiles])
+
+    toast({
+      title: "External images imported",
+      description: `${images.length} images have been imported from the external manifest.`,
+    })
   }
 
   const generateManifest = async () => {
@@ -362,18 +407,47 @@ export default function ManifestGenerator() {
       // Get the base URL for our API endpoints
       const baseUrl = window.location.origin
 
+      // Prepare files for manifest generation
+      const filesForManifest = validFiles.map((file) => {
+        // If it's an external image, use the external URL
+        if (file.externalImage) {
+          return {
+            id: file.id,
+            file: file.file,
+            filePath: file.filePath || "", // Use the external URL directly
+            fileId: "external", // Use a placeholder for external images
+            type: "image",
+            externalImage: true,
+          }
+        }
+        // Otherwise, use the uploaded file
+        return {
+          id: file.id,
+          file: file.file,
+          filePath: file.filePath || "",
+          fileId: file.fileId || "",
+          type: file.type,
+        }
+      })
+
       // Generate the IIIF manifest
       const manifestData = generateIIIFManifest(
-        validFiles as any,
+        filesForManifest as any,
         metadata.title,
         metadata.description,
         baseUrl,
         metadata,
       )
 
-      // Store the manifest in Supabase
-      const fileIds = validFiles.map((file) => file.fileId as string)
+      // Only include valid fileIds (from local files) for database linking
+      const fileIds = validFiles
+        .filter((file) => !file.externalImage && file.fileId)
+        .map((file) => file.fileId as string)
 
+      // Count external images
+      const externalImagesCount = validFiles.filter((file) => file.externalImage).length
+
+      // Store the manifest in Supabase
       const response = await fetch("/api/manifests", {
         method: "POST",
         headers: {
@@ -385,12 +459,14 @@ export default function ManifestGenerator() {
           manifest: manifestData,
           fileIds,
           metadata,
+          externalImagesCount,
         }),
       })
 
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(`Failed to store manifest: ${errorData.error || response.statusText}`)
+        console.error("API error response:", errorData)
+        throw new Error(`Failed to store manifest: ${errorData.details || errorData.error || response.statusText}`)
       }
 
       const result = await response.json()
@@ -550,128 +626,156 @@ export default function ManifestGenerator() {
 
   // Render the file preview or upload area
   const renderFileSection = () => {
-    if (!hasUploadedFiles) {
-      // Show the upload area if no files have been uploaded
-      return (
-        <div>
-          <h2 className="text-xl font-serif font-semibold mb-4">Upload Files</h2>
-
-          <div
-            className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors hover:border-jstor-red h-[300px] flex items-center justify-center"
-            onClick={() => document.getElementById("file-upload")?.click()}
-          >
-            <input
-              id="file-upload"
-              type="file"
-              multiple
-              className="hidden"
-              onChange={handleFileChange}
-              accept="image/*,.pdf,.doc,.docx"
-            />
-            <div className="flex flex-col items-center gap-2">
-              <Upload className="h-12 w-12 text-muted-foreground" />
-              <h3 className="font-serif font-medium text-lg">Drag & drop files here</h3>
-              <p className="text-sm text-muted-foreground font-sans">or click to browse</p>
-            </div>
-          </div>
-        </div>
-      )
-    }
-
-    // Show the file preview if files have been uploaded
     return (
       <div>
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-serif font-semibold">File Preview</h2>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => document.getElementById("file-upload")?.click()}
-            className="font-sans"
-          >
-            <Upload className="h-4 w-4 mr-2" />
-            Replace Files
-          </Button>
-          <input
-            id="file-upload"
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleFileChange}
-            accept="image/*,.pdf,.doc,.docx"
-          />
+          <h2 className="text-xl font-serif font-semibold">Add Content</h2>
+          <div className="flex border rounded-md overflow-hidden">
+            <button
+              className={`px-3 py-1 text-sm font-sans ${
+                importTab === "upload" ? "bg-black text-white" : "bg-white text-black hover:bg-gray-100"
+              }`}
+              onClick={() => setImportTab("upload")}
+            >
+              Upload Files
+            </button>
+            <button
+              className={`px-3 py-1 text-sm font-sans ${
+                importTab === "external" ? "bg-black text-white" : "bg-white text-black hover:bg-gray-100"
+              }`}
+              onClick={() => setImportTab("external")}
+            >
+              External Manifest
+            </button>
+          </div>
         </div>
 
-        <div className="border rounded-lg p-4 h-[400px] overflow-y-auto">
-          <div className="space-y-4">
-            {files.map((file) => (
-              <div key={file.id} className="relative group border rounded-md overflow-hidden">
-                <div className="flex items-start">
-                  <div className="h-32 w-32 bg-muted relative flex-shrink-0">
-                    {file.type === "image" ? (
-                      <Image
-                        src={file.preview || "/placeholder.svg"}
-                        alt={file.file.name}
-                        fill
-                        className="object-cover"
-                      />
-                    ) : (
-                      <div className="h-full w-full flex items-center justify-center">
-                        <FileText className="h-12 w-12 text-muted-foreground" />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="p-3 flex-1">
-                    <p className="font-serif font-medium truncate">{file.file.name}</p>
-                    <p className="text-xs text-muted-foreground mt-1 font-sans">
-                      {(file.file.size / 1024).toFixed(1)} KB
-                    </p>
-
-                    {file.status === "uploading" ? (
-                      <div className="mt-2">
-                        <div className="flex items-center">
-                          <Loader2 className="h-3 w-3 animate-spin text-primary mr-2" />
-                          <span className="text-xs font-sans">Uploading: {file.progress}%</span>
-                        </div>
-                        <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden mt-1">
-                          <div
-                            className="h-full bg-primary transition-all"
-                            style={{ width: `${file.progress}%` }}
-                          ></div>
-                        </div>
-                      </div>
-                    ) : file.status === "uploaded" ? (
-                      <p className="text-xs text-green-600 flex items-center mt-2 font-sans">
-                        <Check className="h-3 w-3 mr-1" /> Uploaded successfully
-                      </p>
-                    ) : file.status === "error" ? (
-                      <p className="text-xs text-destructive mt-2 font-sans">{file.error}</p>
-                    ) : null}
-                  </div>
-
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => removeFile(file.id)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+        {importTab === "upload" ? (
+          // Original upload content
+          <>
+            {!hasUploadedFiles ? (
+              // Show the upload area if no files have been uploaded
+              <div
+                className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors hover:border-jstor-red h-[300px] flex items-center justify-center"
+                onClick={() => document.getElementById("file-upload")?.click()}
+              >
+                <input
+                  id="file-upload"
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileChange}
+                  accept="image/*,.pdf,.doc,.docx"
+                />
+                <div className="flex flex-col items-center gap-2">
+                  <Upload className="h-12 w-12 text-muted-foreground" />
+                  <h3 className="font-serif font-medium text-lg">Drag & drop files here</h3>
+                  <p className="text-sm text-muted-foreground font-sans">or click to browse</p>
                 </div>
               </div>
-            ))}
-          </div>
+            ) : (
+              // Show the file preview if files have been uploaded
+              <div>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-serif font-medium">File Preview</h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => document.getElementById("file-upload")?.click()}
+                    className="font-sans"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Add More Files
+                  </Button>
+                  <input
+                    id="file-upload"
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={handleFileChange}
+                    accept="image/*,.pdf,.doc,.docx"
+                  />
+                </div>
 
-          <div className="mt-4 text-center">
-            <p className="text-sm text-muted-foreground font-sans">
-              {files.length} file{files.length !== 1 ? "s" : ""} selected
-              {files.length > 0 && (
-                <span className="ml-1">({files.filter((f) => f.status === "uploaded").length} uploaded)</span>
-              )}
-            </p>
-          </div>
-        </div>
+                <div className="border rounded-lg p-4 h-[400px] overflow-y-auto">
+                  <div className="space-y-4">
+                    {files.map((file) => (
+                      <div key={file.id} className="relative group border rounded-md overflow-hidden">
+                        <div className="flex items-start">
+                          <div className="h-32 w-32 bg-muted relative flex-shrink-0">
+                            {file.type === "image" ? (
+                              <Image
+                                src={file.preview || "/placeholder.svg"}
+                                alt={file.file.name}
+                                fill
+                                className="object-cover"
+                                unoptimized
+                              />
+                            ) : (
+                              <div className="h-full w-full flex items-center justify-center">
+                                <FileText className="h-12 w-12 text-muted-foreground" />
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="p-3 flex-1">
+                            <p className="font-serif font-medium truncate">{file.file.name}</p>
+                            <p className="text-xs text-muted-foreground mt-1 font-sans">
+                              {file.externalImage ? "External Image" : `${(file.file.size / 1024).toFixed(1)} KB`}
+                            </p>
+
+                            {file.status === "uploading" ? (
+                              <div className="mt-2">
+                                <div className="flex items-center">
+                                  <Loader2 className="h-3 w-3 animate-spin text-primary mr-2" />
+                                  <span className="text-xs font-sans">Uploading: {file.progress}%</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden mt-1">
+                                  <div
+                                    className="h-full bg-primary transition-all"
+                                    style={{ width: `${file.progress}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            ) : file.status === "uploaded" ? (
+                              <p className="text-xs text-green-600 flex items-center mt-2 font-sans">
+                                <Check className="h-3 w-3 mr-1" />
+                                {file.externalImage ? "External image ready" : "Uploaded successfully"}
+                              </p>
+                            ) : file.status === "error" ? (
+                              <p className="text-xs text-destructive mt-2 font-sans">{file.error}</p>
+                            ) : null}
+                          </div>
+
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => removeFile(file.id)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 text-center">
+                    <p className="text-sm text-muted-foreground font-sans">
+                      {files.length} file{files.length !== 1 ? "s" : ""} selected
+                      {files.length > 0 && (
+                        <span className="ml-1">({files.filter((f) => f.status === "uploaded").length} ready)</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          // External manifest import content
+          <ExternalManifestImporter onImagesSelected={handleExternalImagesSelected} />
+        )}
       </div>
     )
   }

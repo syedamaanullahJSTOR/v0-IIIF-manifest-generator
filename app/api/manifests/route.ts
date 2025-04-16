@@ -3,15 +3,15 @@ import { createServerSupabaseClient } from "@/lib/supabase"
 
 export async function POST(request: NextRequest) {
   try {
-    const { label, description, manifest, fileIds, metadata } = await request.json()
+    const { label, description, manifest, fileIds, metadata, externalImages } = await request.json()
 
-    if (!label || !manifest || !fileIds || !Array.isArray(fileIds)) {
+    if (!label || !manifest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
     const supabase = createServerSupabaseClient()
 
-    // Insert the manifest
+    // Insert the manifest - don't include has_external_images field as it might not exist in the schema
     const { data: manifestData, error: manifestError } = await supabase
       .from("manifests")
       .insert({
@@ -24,24 +24,37 @@ export async function POST(request: NextRequest) {
 
     if (manifestError) {
       console.error("Error storing manifest:", manifestError)
-      return NextResponse.json({ error: "Failed to store manifest" }, { status: 500 })
+      return NextResponse.json(
+        {
+          error: "Failed to store manifest",
+          details: manifestError.message || "Unknown database error",
+        },
+        { status: 500 },
+      )
     }
 
-    // Link the manifest to the files
-    const manifestFiles = fileIds.map((fileId) => ({
-      manifest_id: manifestData.id,
-      file_id: fileId,
-    }))
+    // Link the manifest to the files (if any local files)
+    if (fileIds && Array.isArray(fileIds) && fileIds.length > 0) {
+      // Filter out any null or undefined fileIds
+      const validFileIds = fileIds.filter((id) => id)
 
-    const { error: linkError } = await supabase.from("manifest_files").insert(manifestFiles)
+      if (validFileIds.length > 0) {
+        const manifestFiles = validFileIds.map((fileId) => ({
+          manifest_id: manifestData.id,
+          file_id: fileId,
+        }))
 
-    if (linkError) {
-      console.error("Error linking files to manifest:", linkError)
-      return NextResponse.json({ error: "Failed to link files to manifest" }, { status: 500 })
+        const { error: linkError } = await supabase.from("manifest_files").insert(manifestFiles)
+
+        if (linkError) {
+          console.error("Error linking files to manifest:", linkError)
+          // Don't fail the whole operation if linking fails
+          console.log("Continuing despite file linking error")
+        }
+      }
     }
 
     // Store Dublin Core metadata if provided
-    // We'll try to store it, but if it fails, we'll just log the error and continue
     if (metadata) {
       try {
         // Try to insert the metadata - if the table doesn't exist, this will fail
@@ -83,7 +96,13 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error("Error in manifest creation:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return NextResponse.json(
+      {
+        error: "Internal server error",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 },
+    )
   }
 }
 
