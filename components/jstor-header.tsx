@@ -4,16 +4,16 @@ import Image from "next/image"
 export function JstorHeader() {
   return (
     <header className="bg-black text-white">
-      <div className="container mx-auto py-3 px-4">
+      <div className="container mx-auto py-4 px-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <Link href="/" className="flex items-center">
               <Image
                 src="/images/jstor-logo-white.png"
                 alt="JSTOR Logo"
-                width={120}
-                height={50}
-                className="h-10 w-auto"
+                width={180}
+                height={75}
+                className="h-14 w-auto"
               />
             </Link>
           </div>
